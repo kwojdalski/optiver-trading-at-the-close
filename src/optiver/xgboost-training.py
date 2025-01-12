@@ -93,6 +93,7 @@
 
 # %%
 import logging
+import warnings
 from multiprocessing import context
 
 import numpy as np
@@ -100,7 +101,13 @@ import pandas as pd
 from IPython import get_ipython
 from kedro.ipython import load_ipython_extension
 from plotnine import aes, geom_point, geom_smooth, ggplot, labs
+from sklearn.feature_selection import (
+    VarianceThreshold,
+    f_regression,
+    mutual_info_regression,
+)
 
+from src.optiver.pipelines.data_processing.nodes import train_linear_model
 from src.optiver.plots import (
     plot_correlation_matrix,
     plot_feature_distributions,
@@ -115,6 +122,7 @@ sc = logging.getLogger(__name__)
 sc.setLevel(logging.INFO)
 
 params = context.params
+initial_features = params["features"]
 # %%
 # Loading data
 # Moreover the function adds variables based on matched size
@@ -150,11 +158,25 @@ plots[2].show()
 # Generate and display the plots
 # histogram_plot = plot_all_histograms(data)
 # %% [markdown]
-# Check for missing values in the dataset
+# Inpsect the dataset
+# * The dataset consists of only numeric features that can be used in the model
+#     + row_id, stock_id, time_id are used as identifiers for the final submission
+#     + target is the target variable
+#     + all other columns are used as features
+#     + moreover, we can construct more features that might be used for further alpha extraction
+#         + the whole point of this exercise is to predict the closing price (given by the specific formula from description)
+#         + if we can predict that alpha accurately, we can use it to trade the stock
+# .       + for instance, by posting bids below / offers on non-primaries above expected value (e.g. TURQ vs LSE)
 # * Looks like there are no missing values for most columns in the dataset
-# * The only columns with missing values are `far_price` (55.26%) and `near_price` (54.55%)
+#    + the only columns with missing values are `far_price` (55.26%) and `near_price` (54.55%)
+
 # %%
 data = out0["raw_train_data"]
+
+# Display data types of columns
+# only numeric, no categorical features
+sc.info("\nData types of columns:")
+sc.info(data.dtypes)
 sc.info("\nMissing values in each column:")
 sc.info(data.isna().sum())
 sc.info("\nMissing values percentage in each column:")
@@ -168,9 +190,7 @@ sc.info(f"Number of columns: {len(data.columns)}")
 sc.info("\nColumn descriptions:")
 sc.info(data.describe())
 
-# Display data types of columns
-sc.info("\nData types of columns:")
-sc.info(data.dtypes)
+
 # %%
 # Check for correlation between features
 # There is a strong correlation between some of the features
@@ -179,12 +199,17 @@ sc.info(data.dtypes)
 # %% plot feature distributions
 plot_feature_distributions(data, normalize=True)
 
-# %% plot feature relationships
-# We can clearly see outliers in the data
+# %% [markdown] Feature relationships visualization
+# * each feature is plotted against the target variable
+# * we can clearly see outliers in the data
 plot_feature_relationships(data.sample(frac=0.01), data.columns.tolist(), "target")
 
 # %%
 # Plot correlation matrix
+# * there is a strong correlation between some of the features
+#     + in some cases, in comes from the fact that one feature is a linear combination of two others
+# (like `scale_bid_size` and `scale_ask_size` vs `bid_size` and `ask_size`)
+# * Additional test for collinearity might be useful
 plot_correlation_matrix(data)
 
 ## %%
@@ -224,11 +249,11 @@ plot_correlation_matrix(data)
 #
 # ### Ratio Features:
 # For any pair $(X,Y)$ in ratio pairs:
-# $$div\_X\_2\_Y = \frac{X}{Y}$$
+# $$div\\_X\\_Y = \frac{X}{Y}$$
 #
 # ### Imbalance Features:
 # For any pair $(X,Y)$ in imbalance pairs:
-# $$imb1\_X\_Y = \frac{X-Y}{X+Y}$$
+# $$imb1\\_X\\_Y = \frac{X-Y}{X+Y}$$
 # Price Imbalance Features:
 # For any pair of prices $(P1,P2)$:
 # $imb1\_P1\_P2 = \frac{P1-P2}{P1+P2}$
@@ -261,9 +286,6 @@ plot_correlation_matrix(data)
 # * $IAPBP$ = imb1_ask_price_bid_price
 # * $IAASABS$ = imb1_auc_ask_size_auc_bid_size
 
-
-# %% [markdown]
-#  $$imb1\\_X\\_Y = \frac{X-Y}{X+Y}$$
 # %%
 out1 = (
     pipelines["data_processing"]
@@ -286,6 +308,9 @@ out2 = (
 )
 
 processed_train_data_no_nan = out2["processed_train_data_no_nan"]
+# %% [markdown]
+# Feature engineering
+# This node generates features for the model
 # %%
 out3 = (
     pipelines["data_processing"]
@@ -296,6 +321,98 @@ out3 = (
         }
     )
 )
+
+# %% [markdown]
+# Feature selection
+
+
+# %% Feature selection
+all_features = initial_features + feature_list
+# Remove submission features from all features
+all_features = [f for f in all_features if f not in params["submission_features"]]
+proc_df = out3["processed_train_data_no_nan_no_inf"]
+proc_df[all_features]
+
+# %% [markdown]
+# Variance thresholding helps identify and remove features that show minimal variation across observations.
+# When a feature remains mostly constant or changes very little, it typically doesn't contribute meaningful
+# predictive power.
+# Moreover, I use mi_score and sign_fscore to identify features with weak relationships with the target variable.
+# Features with low mi_score (mi_score < 0.01) and high sign_fscore (sign_fscore > 0.1)
+# should be removed as they have weak relationships with the target variable.
+
+
+# %%
+def calculate_feature_importance(
+    proc_df: pd.DataFrame, features: list[str]
+) -> tuple[pd.DataFrame, list[str]]:
+    """Calculate feature importance scores using mutual information and f-regression.
+
+    Args:
+        proc_df: Processed dataframe containing features and target
+        features: List of all feature names
+
+    Returns:
+        Tuple containing:
+        - DataFrame with mutual information and f-regression scores for each feature
+        - List of columns that should be dropped due to low importance
+    """
+    # Calculate mutual information scores
+    sel = VarianceThreshold(0.01)
+    sel_var = sel.fit_transform(proc_df[all_features])
+    col_imp = proc_df[all_features][
+        proc_df[all_features].columns[sel.get_support(indices=True)]
+    ].columns
+    col_redundant = set(processed_train_data[all_features].columns.tolist()) - set(
+        col_imp
+    )
+
+    mi: dict[str, float] = dict()
+    for feature in col_imp:
+        mi.update(
+            {
+                feature: mutual_info_regression(
+                    proc_df[[feature]].values, proc_df["target"].values
+                )[0]
+            }
+        )
+    miDF = pd.DataFrame.from_dict(mi, orient="index", columns=["score"])
+    general_ranking = pd.DataFrame(index=all_features)
+    general_ranking = pd.merge(general_ranking, miDF, left_index=True, right_index=True)
+    general_ranking.rename(columns={"score": "mi_score"}, inplace=True)
+
+    # Calculate f-regression scores
+    warnings.simplefilter(action="ignore", category=FutureWarning)
+    fscore: dict[str, float] = dict()
+    for i in all_features:
+        fscore.update(
+            {i: f_regression(proc_df[[i]].values, proc_df["target"].values)[1]}
+        )
+    fscoreDF = pd.DataFrame.from_dict(fscore, orient="index", columns=["p_value_score"])
+    fscoreDF.sort_values(by="p_value_score").head(10)
+    fscoreDF.sort_values(by="p_value_score", ascending=False).head(10)
+    fscoreDF["sign"] = np.where(fscoreDF.p_value_score < 0.1, 1, 0)
+    general_ranking = pd.merge(
+        general_ranking, fscoreDF, left_index=True, right_index=True
+    )
+    general_ranking.rename(
+        columns={"p_value_score": "sign_fscore", "sign": "sign_fscore_0_1"},
+        inplace=True,
+    )
+
+    # Identify columns to drop based on importance thresholds
+    columns_to_drop = general_ranking[
+        (general_ranking["mi_score"] < 0.01) & (general_ranking["sign_fscore"] > 0.1)
+    ].index.tolist()
+
+    return general_ranking, columns_to_drop
+
+
+general_ranking, columns_to_drop = calculate_feature_importance(proc_df, all_features)
+
+
+# %% [markdown]
+# Split the data into train and test
 # %%
 out4 = (
     pipelines["data_processing"]
@@ -320,7 +437,6 @@ X_train, X_test, y_train, y_test = (
 # %%
 # train_ols_model(X_train, y_train, params={})
 # Train OLS models with k-fold CV
-
 
 models, test_score = train_linear_model(X_train, X_test, y_train, y_test)
 
@@ -365,3 +481,7 @@ plot_df = pd.DataFrame({"Actual": y_test, "Predicted": avg_predictions})
 # %%
 
 # %%
+# Key takewaways:
+# * In practice, such models might be used for trading, but not for HFT, uHFT, as they tend to be too slow
+# * The model is not able to predict the closing price with high accuracy
+# * More sophisticated models might be needed to achieve better results that could contribute to alpha generation for MFT

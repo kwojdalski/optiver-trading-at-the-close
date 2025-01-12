@@ -3,3 +3,29 @@ raw_data_frac: 0.01
 random_state: 42
 frac: 0.01
 target: target
+features:
+  - stock_id
+  - date_id
+  - seconds_in_bucket
+  - imbalance_size
+  - imbalance_buy_sell_flag
+  - reference_price
+  - matched_size
+  - far_price
+  - near_price
+  - bid_price
+  - bid_size
+  - ask_price
+  - ask_size
+  - wap
+  - scale_imbalance_size
+  - scale_matched_size
+  - scale_bid_size
+  - scale_ask_size
+  - auc_bid_size
+  - auc_ask_size
+submission_features:
+  - stock_id
+  - date_id
+  - time_id
+  - row_id

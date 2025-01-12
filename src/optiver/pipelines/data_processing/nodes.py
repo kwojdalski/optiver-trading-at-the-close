@@ -176,37 +176,6 @@ def generate_features(df: pd.DataFrame) -> tuple:
     return df, feas_list
 
 
-def train_model(df: pd.DataFrame, features: list, params: dict) -> dict:
-    """Train XGBoost models with k-fold CV"""
-    models = {}
-    kf = KFold(n_splits=5, shuffle=True, random_state=47)
-
-    for k, (train_idx, test_idx) in enumerate(kf.split(df), 1):
-        logging.info(f"Fold {k} begins...")
-
-        train_data = df.iloc[train_idx]
-        date_ids = train_data["date_id"].values
-        weights = np.ones_like(date_ids, dtype=float)
-        weights[date_ids >= 435] = 1.5
-
-        logging.info(f"Training model for fold {k}...")
-
-        model = xgb.XGBRegressor(**params)
-        model.fit(
-            train_data[features],
-            train_data["target"],
-            sample_weight=weights,
-            eval_set=[(train_data[features], train_data["target"])],
-            verbose=50,
-        )
-
-        logging.info(f"Model for fold {k} trained successfully.")
-
-        models[f"fold_{k}"] = model
-
-    return models
-
-
 def split_data(
     data: pd.DataFrame, target: str, test_size: float, random_state: int
 ) -> tuple:
@@ -225,6 +194,28 @@ def split_data(
         X, y, test_size=test_size, random_state=random_state
     )
     return X_train, X_test, y_train, y_test
+
+
+def handle_nan_rows(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.dropna()
+    return df
+
+
+def check_and_replace_infinity_values(df: pd.DataFrame) -> pd.DataFrame:
+    """Check for infinity values in training and test sets by column and replace with mean"""
+    train_inf = df.isin([np.inf, -np.inf]).sum()
+
+    logging.info("\nNumber of infinity values by column:")
+    for col, count in train_inf[train_inf > 0].items():
+        logging.info(f"{col}: {count}")
+        # Replace inf values with mean for this column
+        col_mean = df[col].replace([np.inf, -np.inf], np.nan).mean()
+        df[col] = df[col].replace([np.inf, -np.inf], col_mean)
+
+    if (train_inf > 0).any():
+        logging.warning("Infinity values have been replaced with column means")
+
+    return df
 
 
 def train_linear_model(
@@ -276,23 +267,32 @@ def train_linear_model(
     return models, test_score
 
 
-def handle_nan_rows(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.dropna()
-    return df
+def train_model(df: pd.DataFrame, features: list, params: dict) -> dict:
+    """Train XGBoost models with k-fold CV"""
+    models = {}
+    kf = KFold(n_splits=5, shuffle=True, random_state=47)
 
+    for k, (train_idx, test_idx) in enumerate(kf.split(df), 1):
+        logging.info(f"Fold {k} begins...")
 
-def check_and_replace_infinity_values(df: pd.DataFrame) -> pd.DataFrame:
-    """Check for infinity values in training and test sets by column and replace with mean"""
-    train_inf = df.isin([np.inf, -np.inf]).sum()
+        train_data = df.iloc[train_idx]
+        date_ids = train_data["date_id"].values
+        weights = np.ones_like(date_ids, dtype=float)
+        weights[date_ids >= 435] = 1.5
 
-    logging.info("\nNumber of infinity values by column:")
-    for col, count in train_inf[train_inf > 0].items():
-        logging.info(f"{col}: {count}")
-        # Replace inf values with mean for this column
-        col_mean = df[col].replace([np.inf, -np.inf], np.nan).mean()
-        df[col] = df[col].replace([np.inf, -np.inf], col_mean)
+        logging.info(f"Training model for fold {k}...")
 
-    if (train_inf > 0).any():
-        logging.warning("Infinity values have been replaced with column means")
+        model = xgb.XGBRegressor(**params)
+        model.fit(
+            train_data[features],
+            train_data["target"],
+            sample_weight=weights,
+            eval_set=[(train_data[features], train_data["target"])],
+            verbose=50,
+        )
 
-    return df
+        logging.info(f"Model for fold {k} trained successfully.")
+
+        models[f"fold_{k}"] = model
+
+    return models
