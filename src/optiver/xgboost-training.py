@@ -49,6 +49,7 @@
 # - $x_i$ is the observed value for data point $i$.
 #
 
+
 # ## Data Description
 # %% [markdown]
 # Dataset Description
@@ -94,12 +95,19 @@
 import logging
 from multiprocessing import context
 
+import numpy as np
 import pandas as pd
 from IPython import get_ipython
 from kedro.ipython import load_ipython_extension
-from plotnine import aes, facet_wrap, geom_histogram, ggplot, theme
+from plotnine import aes, geom_point, geom_smooth, ggplot, labs
 
-from src.optiver.pipelines.data_processing.nodes import train_ols_model
+from src.optiver.plots import (
+    plot_correlation_matrix,
+    plot_feature_distributions,
+    plot_feature_relationships,
+    plot_market_data,
+    plot_time_series,
+)
 
 ipython = get_ipython()
 load_ipython_extension(ipython)
@@ -110,6 +118,7 @@ params = context.params
 # %%
 # Loading data
 # Moreover the function adds variables based on matched size
+
 out0 = (
     pipelines["data_processing"]
     .nodes[0]
@@ -123,32 +132,20 @@ out0 = (
 )
 
 # %%
+# %%
+# Ploting time series for target in day 0
+
+processed_train_data = catalog.load("raw_train_data")
+
+processed_train_data[processed_train_data["date_id"] == 2]
+plot_time_series(processed_train_data, date_id=2)
 
 
-def plot_all_histograms(data: pd.DataFrame):
-    """
-    Create histograms for all numeric variables in the dataset
-
-    Args:
-        data: Input dataframe containing numeric columns
-    """
-    # Sample 10% of data with fixed random seed
-    sampled_data = data.sample(frac=0.00001, random_state=0)
-
-    # Melt the dataframe to get all numeric columns in long format
-    numeric_cols = sampled_data.select_dtypes(include=["int64", "float64"]).columns
-    melted_data = pd.melt(sampled_data[numeric_cols])
-
-    # Create histogram for each numeric variable
-    plot = (
-        ggplot(melted_data, aes(x="value"))
-        + geom_histogram()
-        + facet_wrap("~variable", scales="free")
-        + theme(figure_size=(15, 15))
-    )
-
-    return plot
-
+# Example usage
+plots = plot_market_data(processed_train_data)
+plots[0].show()
+plots[1].show()
+plots[2].show()
 
 # Generate and display the plots
 # histogram_plot = plot_all_histograms(data)
@@ -174,7 +171,99 @@ sc.info(data.describe())
 # Display data types of columns
 sc.info("\nData types of columns:")
 sc.info(data.dtypes)
+# %%
+# Check for correlation between features
+# There is a strong correlation between some of the features
+# Hence, additional test for collinearity is needed
+# Create box plots to visualize feature distributions
+# %% plot feature distributions
+plot_feature_distributions(data, normalize=True)
 
+# %% plot feature relationships
+# We can clearly see outliers in the data
+plot_feature_relationships(data.sample(frac=0.01), data.columns.tolist(), "target")
+
+# %%
+# Plot correlation matrix
+plot_correlation_matrix(data)
+
+## %%
+# Perform collinearity test using Variance Inflation Factor (VIF)
+
+
+# %% [markdown]
+# Feature engineering
+# This node generates features for the model
+# %% [markdown] Feature engineering formulas
+# Generate features for training with formulas in LaTeX notation:
+#
+# ### Basic Features:
+# - Ask Money: $$AM = AS \times AP$$
+# - Bid Money: $$BM = BS \times BP$$
+# - Ask Size All: $$ASA = AS + AAS$$
+# - Bid Size All: $$BSA = BS + ABS$$
+# - Volume Size All: $$VSA = ASA + BSA$$
+# - Ask Auction Money: $$AAM = RP \times AAS$$
+# - Bid Auction Money: $$BAM = RP \times ABS$$
+# - Volume Money: $$VM = AM + BM$$
+# - Volume Continuous: $$VC = AS + BS$$
+# - Diff Ask Bid Size: $$DABS = AS - BS$$
+# - Volume Auction: $$VA = IS + 2MS$$
+# - Volume Auction Money: $$VAM = VA \times RP$$
+# - Mid Price: $$MP = \frac{AP + BP}{2}$$
+# - Mid Price Near Far: $$MPNF = \frac{NP + FP}{2}$$
+# - Price Diff Ask Bid: $$PDAB = AP - BP$$
+# - Price Div Ask Bid: $$PDAB = \frac{AP}{BP}$$
+# - Flag Scale Imbalance Size: $$FSIS = IBSF \times SIS$$
+# - Flag Imbalance Size: $$FIS = IBSF \times IS$$
+# - Div Flag Imbalance Size to Balance: $$DFISB = \frac{IS}{MS} \times IBSF$$
+# - Price Pressure: $$PP = PDAB \times IS$$
+# - Price Pressure v2: $$PPv2 = PP \times IBSF$$
+# - Depth Pressure: $$DP = \frac{DABS}{FP - NP}$$
+# - Div Bid Size Ask Size: $$DBSAS = \frac{BS}{AS}$$
+#
+# ### Ratio Features:
+# For any pair $(X,Y)$ in ratio pairs:
+# $$div\_X\_2\_Y = \frac{X}{Y}$$
+#
+# ### Imbalance Features:
+# For any pair $(X,Y)$ in imbalance pairs:
+# $$imb1\_X\_Y = \frac{X-Y}{X+Y}$$
+# Price Imbalance Features:
+# For any pair of prices $(P1,P2)$:
+# $imb1\_P1\_P2 = \frac{P1-P2}{P1+P2}$
+#
+# ### Market Urgency Features:
+# - Market Urgency v2: $$MUv2 = (IASBS + 2)(IAPBP + 2)(IAASABS + 2)$$
+# - Market Urgency: $$MU = PDAB \times IASBS$$
+# - Market Urgency v3: $$MUv3 = IAPBP \times IASBS$$
+#
+# ### Rolling Features:
+# For each feature $F$ and window size $w$:
+# - Rolling Mean: $$\bar{F_w} = \frac{1}{w}\sum_{i=t-w+1}^t F_i$$
+# - Rolling Std: $$\sigma_{F_w} = \sqrt{\frac{1}{w}\sum_{i=t-w+1}^t (F_i - \bar{F_w})^2}$$
+#
+# Where:
+# * $AS$ = ask_size,
+# * $AP$ = ask_price,
+# * $BS$ = bid_size,
+# * $BP$ = bid_price
+# * $AAS$ = auc_ask_size,
+# * $ABS$ = auc_bid_size,
+# * $RP$ = reference_price
+# * $IS$ = imbalance_size,
+# * $MS$ = matched_size,
+# * $NP$ = near_price
+# * $FP$ = far_price,
+# * $IBSF$ = imbalance_buy_sell_flag
+# * $SIS$ = scale_imbalance_size
+# * $IASBS$ = imb1_ask_size_bid_size
+# * $IAPBP$ = imb1_ask_price_bid_price
+# * $IAASABS$ = imb1_auc_ask_size_auc_bid_size
+
+
+# %% [markdown]
+#  $$imb1\\_X\\_Y = \frac{X-Y}{X+Y}$$
 # %%
 out1 = (
     pipelines["data_processing"]
@@ -228,23 +317,51 @@ X_train, X_test, y_train, y_test = (
     out4["y_test"],
 )
 
+# %%
+# train_ols_model(X_train, y_train, params={})
+# Train OLS models with k-fold CV
+
+
+models, test_score = train_linear_model(X_train, X_test, y_train, y_test)
 
 # %%
+out5 = (
+    pipelines["data_processing"]
+    .nodes[5]
+    .run(
+        {
+            "X_train": X_train,
+            "X_test": X_test,
+            "y_train": y_train,
+            "y_test": y_test,
+        }
+    )
+)
 
-train_ols_model(X_train, y_train, params={})
+# %% plot the models
 
+# Create predictions for plotting
+test_predictions = []
+for fold_name, model in models.items():
+    pred = model.predict(X_test)
+    test_predictions.append(pred)
 
-# Check for infinity values in training and test sets
+# Average predictions across folds
+avg_predictions = np.mean(test_predictions, axis=0)
 
+# Create plotting dataframe
+plot_df = pd.DataFrame({"Actual": y_test, "Predicted": avg_predictions})
 
-check_infinity_values(X_train, X_test)
-# Remove rows with infinity values
-X_train = X_train.replace([np.inf, -np.inf], 0).dropna()
-X_test = X_test.replace([np.inf, -np.inf], 0).dropna()
+# Create scatter plot with trend line
+(
+    ggplot(plot_df, aes("Actual", "Predicted"))
+    + geom_point(alpha=0.5)
+    + geom_smooth(method="lm", color="red")
+    + labs(
+        title="Linear Model Predictions vs Actual Values",
+        subtitle=f"Test RMSE: {test_score:.6f}",
+    )
+).draw()
+# %%
 
-# Update y_train and y_test to match filtered X
-y_train = y_train[X_train.index]
-y_test = y_test[X_test.index]
-
-# Key findings
-# * Infinity values are present in the dataset
+# %%

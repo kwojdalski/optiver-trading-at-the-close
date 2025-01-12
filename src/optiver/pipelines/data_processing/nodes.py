@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import KFold, train_test_split
 
 logger = logging.getLogger(__name__)
@@ -226,29 +227,53 @@ def split_data(
     return X_train, X_test, y_train, y_test
 
 
-def train_ols_model(X_train: pd.DataFrame, y_train: pd.Series, params: dict) -> dict:
-    """Train OLS models with k-fold CV"""
+def train_linear_model(
+    X_train: pd.DataFrame, X_test: pd.DataFrame, y_train: pd.Series, y_test: pd.Series
+) -> dict:
+    """Train linear regression models with k-fold CV and evaluate performance
+
+    Args:
+        X_train: Training features
+        X_test: Test features
+        y_train: Training target
+        y_test: Test target
+
+    Returns:
+        Dictionary containing trained models for each fold
+    """
     models = {}
     kf = KFold(n_splits=5, shuffle=True, random_state=47)
+    params = {"fit_intercept": True}
 
     for k, (train_idx, test_idx) in enumerate(kf.split(X_train), 1):
         logging.info(f"Fold {k} begins...")
 
         train_data = X_train.iloc[train_idx]
-        date_ids = train_data["date_id"].values
-        weights = np.ones_like(date_ids, dtype=float)
-        weights[date_ids >= 435] = 1.5
+        y_train_fold = y_train.iloc[train_idx]
 
         logging.info(f"Training model for fold {k}...")
-
+        logging.info(f"Train data shape: {train_data.shape}")
+        logging.info(f"Y train shape: {y_train_fold.shape}")
         model = LinearRegression(**params)
-        model.fit(train_data, y_train, sample_weight=weights)
+        model.fit(train_data, y_train_fold)
 
         logging.info(f"Model for fold {k} trained successfully.")
 
         models[f"fold_{k}"] = model
+        # Make predictions on test set
+        test_preds = []
+        for fold_name, model in models.items():
+            fold_pred = model.predict(X_test)
+            test_preds.append(fold_pred)
 
-    return models
+        # Average predictions across folds
+        test_pred_avg = np.mean(test_preds, axis=0)
+
+        # Calculate and print test set performance
+        test_score = np.sqrt(mean_squared_error(y_test, test_pred_avg))
+        logging.info(f"\nTest Set RMSE: {test_score:.6f}")
+
+    return models, test_score
 
 
 def handle_nan_rows(df: pd.DataFrame) -> pd.DataFrame:
