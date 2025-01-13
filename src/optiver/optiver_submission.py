@@ -100,14 +100,13 @@ import numpy as np
 import pandas as pd
 from IPython import get_ipython
 from kedro.ipython import load_ipython_extension
-from plotnine import aes, geom_point, geom_smooth, ggplot, labs
+from plotnine import aes, facet_wrap, geom_point, geom_smooth, ggplot, labs, theme
 from sklearn.feature_selection import (
     VarianceThreshold,
     f_regression,
     mutual_info_regression,
 )
 
-from src.optiver.pipelines.data_processing.nodes import train_linear_model
 from src.optiver.plots import (
     plot_correlation_matrix,
     plot_feature_distributions,
@@ -140,7 +139,6 @@ out0 = (
 )
 
 # %%
-# %%
 # Ploting time series for target in day 0
 
 processed_train_data = catalog.load("raw_train_data")
@@ -149,7 +147,6 @@ processed_train_data[processed_train_data["date_id"] == 2]
 plot_time_series(processed_train_data, date_id=2)
 
 
-# Example usage
 plots = plot_market_data(processed_train_data)
 plots[0].show()
 plots[1].show()
@@ -197,6 +194,8 @@ sc.info(data.describe())
 # Hence, additional test for collinearity is needed
 # Create box plots to visualize feature distributions
 # %% plot feature distributions
+# Initial feature distributions vary by magnitude and scale. Hence, further
+# normalization might be required
 plot_feature_distributions(data, normalize=True)
 
 # %% [markdown] Feature relationships visualization
@@ -333,12 +332,12 @@ all_features = [f for f in all_features if f not in params["submission_features"
 proc_df = out3["processed_train_data_no_nan_no_inf"]
 proc_df[all_features]
 
-# %% [markdown]
-# Variance thresholding helps identify and remove features that show minimal variation across observations.
-# When a feature remains mostly constant or changes very little, it typically doesn't contribute meaningful
+# %% [markdown] Feature selection
+# * Variance thresholding helps identifying and removing features that show minimal variation across observations.
+# * When a feature remains mostly constant or changes very little, it typically doesn't contribute meaningful
 # predictive power.
-# Moreover, I use mi_score and sign_fscore to identify features with weak relationships with the target variable.
-# Features with low mi_score (mi_score < 0.01) and high sign_fscore (sign_fscore > 0.1)
+# * Moreover, I use mi_score and sign_fscore to identify features with weak relationships with the target variable.
+# Features with low mi_score ($mi\_score < 0.01$) and high sign_fscore ($sign\_fscore > 0.1$)
 # should be removed as they have weak relationships with the target variable.
 
 
@@ -434,13 +433,8 @@ X_train, X_test, y_train, y_test = (
     out4["y_test"],
 )
 
-# %%
-# train_ols_model(X_train, y_train, params={})
-# Train OLS models with k-fold CV
-
-models, test_score = train_linear_model(X_train, X_test, y_train, y_test)
-
-# %%
+# %% [markdown]
+# Train Linear Regression models with k-fold CV
 out5 = (
     pipelines["data_processing"]
     .nodes[5]
@@ -454,34 +448,119 @@ out5 = (
     )
 )
 
-# %% plot the models
-
-# Create predictions for plotting
-test_predictions = []
-for fold_name, model in models.items():
-    pred = model.predict(X_test)
-    test_predictions.append(pred)
-
-# Average predictions across folds
-avg_predictions = np.mean(test_predictions, axis=0)
-
-# Create plotting dataframe
-plot_df = pd.DataFrame({"Actual": y_test, "Predicted": avg_predictions})
-
-# Create scatter plot with trend line
-(
-    ggplot(plot_df, aes("Actual", "Predicted"))
-    + geom_point(alpha=0.5)
-    + geom_smooth(method="lm", color="red")
-    + labs(
-        title="Linear Model Predictions vs Actual Values",
-        subtitle=f"Test RMSE: {test_score:.6f}",
-    )
-).draw()
+# %% [markdown]
+# Train Random Forest models with k-fold CV
 # %%
+out6 = (
+    pipelines["data_processing"]
+    .nodes[6]
+    .run(
+        {
+            "X_train": X_train,
+            "X_test": X_test,
+            "y_train": y_train,
+            "y_test": y_test,
+        }
+    )
+)
+
+# %% [markdown]
+# Train KNN models with k-fold CV
+out8 = (
+    pipelines["data_processing"]
+    .nodes[7]
+    .run(
+        {
+            "X_train": X_train,
+            "X_test": X_test,
+            "y_train": y_train,
+            "y_test": y_test,
+        }
+    )
+)
+# %%
+# Merge all models into a single dictionary
+models = {
+    "knn": out5["knn_model"][0],  # Linear regression models
+    "lr": out6["lr_model"][0],  # Random forest models
+    # 'svr': out7[0],  # SVR models
+    "svr": out8["svr_model"][0],  # KNN models
+}
+
+accuracy = {
+    "knn": out5["knn_model"][1],  # Linear regression accuracy
+    "lr": out6["lr_model"][1],  # Random forest accuracy
+    # 'svr': out7[1],  # SVR accuracy
+    "svr": out8["svr_model"][1],  # KNN accuracy
+}
+
+
+# %% plot the models
+# Create predictions for plotting
+predictions_dict = {}
+for name, model in models.items():
+    predictions_dict[f"{name}_pred"] = model.predict(X_test)
+
+
+def plot_model_predictions(y_test: pd.Series, predictions_dict: dict):
+    """Create scatter plots comparing model predictions vs actual values.
+
+    Args:
+        y_test: Series containing actual test values
+        predictions_dict: Dictionary mapping model names to their predictions
+
+    Returns:
+        ggplot object with faceted scatter plots
+    """
+    # Create dataframe with actual values and predictions from each model
+    plot_df = pd.DataFrame({"Actual": y_test, **predictions_dict})
+
+    # Melt the dataframe to long format for faceting
+    plot_df_long = pd.melt(
+        plot_df,
+        id_vars=["Actual"],
+        value_vars=[col for col in plot_df.columns if col != "Actual"],
+        var_name="Model",
+        value_name="Predicted",
+    )
+
+    # Create scatter plots for each model
+    plot = (
+        ggplot(plot_df_long, aes(x="Actual", y="Predicted"))
+        + geom_point(alpha=0.5)
+        + geom_smooth(method="lm", color="red")
+        + facet_wrap("~Model", ncol=3)
+        + labs(title="Model Predictions vs Actual Values")
+        + theme(figure_size=(25, 25))
+    )
+
+    return plot
+
+
+# %% [markdown] Accuracy table
+# * Optiver benchmark (MAE):
+#     + baseline accuracy - 6.4077
+#     + simple prediction accuracy - 6.4070 (MAE improvement in basis points: 0.0007)
+# * We can that all of our models are slightly better with linear regression being the best one (5.7562)
+accuracy_df = pd.DataFrame(accuracy).T
+accuracy_df = accuracy_df.round(4)
 
 # %%
 # Key takewaways:
 # * In practice, such models might be used for trading, but not for HFT, uHFT, as they tend to be too slow
 # * The model is not able to predict the closing price with high accuracy
 # * More sophisticated models might be needed to achieve better results that could contribute to alpha generation for MFT
+# * Accuracy of models could be improved by working on parametrization of both models and engineered features
+#     + Experiment with regularization methods
+#     + Trying different models
+# * Also, data processing pipeline could have been more sophisticated with addessing such issues as:
+#     + cleaning up the data (e.g. outlier detection)
+#     + feature selection
+#     + handling missing values / inf values differently
+#     + data transformation (e.g. normalization, log transformation, etc.)
+#     + dimensionality reduction methods (e.g. PCA) that could speed up the training process at a relatively low cost (of accuracy)
+
+# %%
+# References:
+# * [Optiver Trading at the Close Competition](https://www.optiver.com/en/)
+# * [Github Repo used for this submission](https://github.com/kwojdalski/optiver-trading-at-the-close)

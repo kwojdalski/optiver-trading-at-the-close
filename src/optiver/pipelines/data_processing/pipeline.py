@@ -6,7 +6,9 @@ from .nodes import (
     handle_nan_rows,
     load_train_data,
     split_data,
+    train_knn_model,
     train_linear_model,
+    train_svr_model,
 )
 
 
@@ -56,8 +58,20 @@ def create_pipeline(**kwargs) -> Pipeline:
             node(
                 func=train_linear_model,
                 inputs=["X_train", "X_test", "y_train", "y_test"],
-                outputs="models",
+                outputs="lr_model",
                 name="train_linear_model",
+            ),
+            node(
+                func=train_svr_model,
+                inputs=["X_train", "X_test", "y_train", "y_test"],
+                outputs="svr_model",
+                name="train_svr_model",
+            ),
+            node(
+                func=train_knn_model,
+                inputs=["X_train", "X_test", "y_train", "y_test"],
+                outputs="knn_model",
+                name="train_knn_model",
             ),
         ]
     )

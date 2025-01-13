@@ -3,10 +3,11 @@ from itertools import combinations
 
 import numpy as np
 import pandas as pd
-import xgboost as xgb
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import KFold, train_test_split
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.svm import SVR
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +222,8 @@ def check_and_replace_infinity_values(df: pd.DataFrame) -> pd.DataFrame:
 def train_linear_model(
     X_train: pd.DataFrame, X_test: pd.DataFrame, y_train: pd.Series, y_test: pd.Series
 ) -> dict:
-    """Train linear regression models with k-fold CV and evaluate performance
+    """Train linear regression models with k-fold CV and evaluate performance,
+    merging coefficients across folds
 
     Args:
         X_train: Training features
@@ -230,11 +232,14 @@ def train_linear_model(
         y_test: Test target
 
     Returns:
-        Dictionary containing trained models for each fold
+        Tuple containing merged model and test score
     """
-    models = {}
     kf = KFold(n_splits=5, shuffle=True, random_state=47)
     params = {"fit_intercept": True}
+
+    # Lists to store coefficients and intercepts from each fold
+    all_coef = []
+    all_intercepts = []
 
     for k, (train_idx, test_idx) in enumerate(kf.split(X_train), 1):
         logging.info(f"Fold {k} begins...")
@@ -245,54 +250,218 @@ def train_linear_model(
         logging.info(f"Training model for fold {k}...")
         logging.info(f"Train data shape: {train_data.shape}")
         logging.info(f"Y train shape: {y_train_fold.shape}")
+
         model = LinearRegression(**params)
+        model.fit(train_data, y_train_fold)
+
+        all_coef.append(model.coef_)
+        all_intercepts.append(model.intercept_)
+
+        logging.info(f"Model for fold {k} trained successfully.")
+
+    # Create merged model with averaged coefficients
+    final_model = LinearRegression(**params)
+    final_model.coef_ = np.mean(all_coef, axis=0)
+    final_model.intercept_ = np.mean(all_intercepts)
+
+    # Make predictions with merged model
+    test_pred = final_model.predict(X_test)
+
+    # Calculate test performance metrics
+    rmse = np.sqrt(mean_squared_error(y_test, test_pred))
+    mae = mean_absolute_error(y_test, test_pred)
+    r2 = r2_score(y_test, test_pred)
+
+    logging.info("\nTest Set Metrics:")
+    logging.info(f"RMSE: {rmse:.6f}")
+    logging.info(f"MAE: {mae:.6f}")
+    logging.info(f"R2 Score: {r2:.6f}")
+
+    metrics = {"rmse": rmse, "mae": mae, "r2": r2}
+
+    return final_model, metrics
+
+
+def train_knn_model(
+    X_train: pd.DataFrame, X_test: pd.DataFrame, y_train: pd.Series, y_test: pd.Series
+) -> tuple:
+    """Train KNN models with k-fold CV and evaluate performance
+
+    Args:
+        X_train: Training features
+        X_test: Test features
+        y_train: Training target
+        y_test: Test target
+
+    Returns:
+        Tuple containing final model and test score
+    """
+    kf = KFold(n_splits=5, shuffle=True, random_state=47)
+    params = {"n_neighbors": 5}
+
+    # Lists to store predictions from each fold
+    all_predictions = []
+
+    for k, (train_idx, test_idx) in enumerate(kf.split(X_train), 1):
+        logging.info(f"Fold {k} begins...")
+
+        train_data = X_train.iloc[train_idx]
+        y_train_fold = y_train.iloc[train_idx]
+
+        logging.info(f"Training model for fold {k}...")
+        logging.info(f"Train data shape: {train_data.shape}")
+        logging.info(f"Y train shape: {y_train_fold.shape}")
+        model = KNeighborsRegressor(**params)
         model.fit(train_data, y_train_fold)
 
         logging.info(f"Model for fold {k} trained successfully.")
 
-        models[f"fold_{k}"] = model
-        # Make predictions on test set
-        test_preds = []
-        for fold_name, model in models.items():
-            fold_pred = model.predict(X_test)
-            test_preds.append(fold_pred)
+        # Get predictions for this fold
+        fold_pred = model.predict(X_test)
+        all_predictions.append(fold_pred)
 
-        # Average predictions across folds
-        test_pred_avg = np.mean(test_preds, axis=0)
+    # Train final model on full training data
+    final_model = KNeighborsRegressor(**params)
+    final_model.fit(X_train, y_train)
 
-        # Calculate and print test set performance
-        test_score = np.sqrt(mean_squared_error(y_test, test_pred_avg))
-        logging.info(f"\nTest Set RMSE: {test_score:.6f}")
+    # Average predictions across folds
+    test_pred_avg = np.mean(all_predictions, axis=0)
 
-    return models, test_score
+    # Calculate test performance metrics
+    rmse = np.sqrt(mean_squared_error(y_test, test_pred_avg))
+    mae = mean_absolute_error(y_test, test_pred_avg)
+    r2 = r2_score(y_test, test_pred_avg)
+
+    logging.info("\nTest Set Metrics:")
+    logging.info(f"RMSE: {rmse:.6f}")
+    logging.info(f"MAE: {mae:.6f}")
+    logging.info(f"R2 Score: {r2:.6f}")
+
+    metrics = {"rmse": rmse, "mae": mae, "r2": r2}
+
+    return final_model, metrics
 
 
-def train_model(df: pd.DataFrame, features: list, params: dict) -> dict:
-    """Train XGBoost models with k-fold CV"""
-    models = {}
+def train_svr_model(
+    X_train: pd.DataFrame, X_test: pd.DataFrame, y_train: pd.Series, y_test: pd.Series
+) -> tuple:
+    """Train SVM models with k-fold CV and evaluate performance
+
+    Args:
+        X_train: Training features
+        X_test: Test features
+        y_train: Training target
+        y_test: Test target
+
+    Returns:
+        Tuple containing final model and test score
+    """
     kf = KFold(n_splits=5, shuffle=True, random_state=47)
+    params = {"kernel": "rbf", "C": 1.0, "epsilon": 0.1}
 
-    for k, (train_idx, test_idx) in enumerate(kf.split(df), 1):
+    # Lists to store predictions from each fold
+    all_predictions = []
+
+    for k, (train_idx, test_idx) in enumerate(kf.split(X_train), 1):
         logging.info(f"Fold {k} begins...")
 
-        train_data = df.iloc[train_idx]
-        date_ids = train_data["date_id"].values
-        weights = np.ones_like(date_ids, dtype=float)
-        weights[date_ids >= 435] = 1.5
+        train_data = X_train.iloc[train_idx]
+        y_train_fold = y_train.iloc[train_idx]
 
         logging.info(f"Training model for fold {k}...")
-
-        model = xgb.XGBRegressor(**params)
-        model.fit(
-            train_data[features],
-            train_data["target"],
-            sample_weight=weights,
-            eval_set=[(train_data[features], train_data["target"])],
-            verbose=50,
-        )
+        logging.info(f"Train data shape: {train_data.shape}")
+        logging.info(f"Y train shape: {y_train_fold.shape}")
+        model = SVR(**params)
+        model.fit(train_data, y_train_fold)
 
         logging.info(f"Model for fold {k} trained successfully.")
 
-        models[f"fold_{k}"] = model
+        # Get predictions for this fold
+        fold_pred = model.predict(X_test)
+        all_predictions.append(fold_pred)
 
-    return models
+    # Train final model on full training data
+    final_model = SVR(**params)
+    final_model.fit(X_train, y_train)
+
+    # Average predictions across folds
+    test_pred_avg = np.mean(all_predictions, axis=0)
+
+    # Calculate test performance metrics
+    rmse = np.sqrt(mean_squared_error(y_test, test_pred_avg))
+    mae = mean_absolute_error(y_test, test_pred_avg)
+    r2 = r2_score(y_test, test_pred_avg)
+
+    logging.info("\nTest Set Metrics:")
+    logging.info(f"RMSE: {rmse:.6f}")
+    logging.info(f"MAE: {mae:.6f}")
+    logging.info(f"R2 Score: {r2:.6f}")
+
+    metrics = {"rmse": rmse, "mae": mae, "r2": r2}
+
+    return final_model, metrics
+
+
+def calculate_feature_importance(
+    proc_df: pd.DataFrame, features: list[str]
+) -> tuple[pd.DataFrame, list[str]]:
+    """Calculate feature importance scores using mutual information and f-regression.
+
+    Args:
+        proc_df: Processed dataframe containing features and target
+        features: List of all feature names
+
+    Returns:
+        Tuple containing:
+        - DataFrame with mutual information and f-regression scores for each feature
+        - List of columns that should be dropped due to low importance
+    """
+    # Calculate mutual information scores
+    sel = VarianceThreshold(0.01)
+    sel_var = sel.fit_transform(proc_df[all_features])
+    col_imp = proc_df[all_features][
+        proc_df[all_features].columns[sel.get_support(indices=True)]
+    ].columns
+    col_redundant = set(processed_train_data[all_features].columns.tolist()) - set(
+        col_imp
+    )
+
+    mi: dict[str, float] = dict()
+    for feature in col_imp:
+        mi.update(
+            {
+                feature: mutual_info_regression(
+                    proc_df[[feature]].values, proc_df["target"].values
+                )[0]
+            }
+        )
+    miDF = pd.DataFrame.from_dict(mi, orient="index", columns=["score"])
+    general_ranking = pd.DataFrame(index=all_features)
+    general_ranking = pd.merge(general_ranking, miDF, left_index=True, right_index=True)
+    general_ranking.rename(columns={"score": "mi_score"}, inplace=True)
+
+    # Calculate f-regression scores
+    warnings.simplefilter(action="ignore", category=FutureWarning)
+    fscore: dict[str, float] = dict()
+    for i in all_features:
+        fscore.update(
+            {i: f_regression(proc_df[[i]].values, proc_df["target"].values)[1]}
+        )
+    fscoreDF = pd.DataFrame.from_dict(fscore, orient="index", columns=["p_value_score"])
+    fscoreDF.sort_values(by="p_value_score").head(10)
+    fscoreDF.sort_values(by="p_value_score", ascending=False).head(10)
+    fscoreDF["sign"] = np.where(fscoreDF.p_value_score < 0.1, 1, 0)
+    general_ranking = pd.merge(
+        general_ranking, fscoreDF, left_index=True, right_index=True
+    )
+    general_ranking.rename(
+        columns={"p_value_score": "sign_fscore", "sign": "sign_fscore_0_1"},
+        inplace=True,
+    )
+
+    # Identify columns to drop based on importance thresholds
+    columns_to_drop = general_ranking[
+        (general_ranking["mi_score"] < 0.01) & (general_ranking["sign_fscore"] > 0.1)
+    ].index.tolist()
+
+    return general_ranking, columns_to_drop
