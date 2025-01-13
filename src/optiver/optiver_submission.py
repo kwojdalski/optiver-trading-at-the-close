@@ -5,7 +5,7 @@
 # the stock. Information from the auction can be used to adjust prices, access supply and demand dynamics,
 # and identify trading opportunities.
 #
-# # Description
+# # More in-depth description
 #
 # #### [Taken from the competition website](https://www.kaggle.com/competitions/optiver-trading-at-the-close/overview)
 # Stock exchanges are fast-paced, high-stakes environments where every second counts. The intensity
@@ -27,17 +27,12 @@
 # traditional order book data with auction book data. This ability to consolidate information from both
 # sources is critical for providing the best prices to all market participants.
 #
-# In this competition, you are challenged to develop a model capable of predicting the closing price
-# movements for hundreds of Nasdaq listed stocks using data from the order book and the closing auction
-# of the stock. Information from the auction can be used to adjust prices, assess supply and demand
-# dynamics, and identify trading opportunities.
-#
 # Your model can contribute to the consolidation of signals from the auction and order book, leading to
 # improved market efficiency and accessibility, particularly during the intense final ten minutes of
 # trading. You'll also get firsthand experience in handling real-world data science problems, similar to
 # those faced by traders, quantitative researchers and engineers at Optiver.
 #
-# # Evaluation
+# ### Evaluation
 # Submissions are evaluate on the Mean Absolute Error (MAE) between the predicted return and the observed target. The formula is given by:
 #
 # $$MAE = \frac{1}{n}\sum_{i=1}^{n}|y_i - x_i|$$
@@ -47,12 +42,11 @@
 # - $n$ is the total number of data points.
 # - $y_i$ is the predicted value for data point $i$.
 # - $x_i$ is the observed value for data point $i$.
-#
 
 
 # ## Data Description
 # %% [markdown]
-# Dataset Description
+# ### Dataset
 # This dataset contains historic data for the daily ten minute closing auction on the NASDAQ stock
 # exchange. Your challenge is to predict the future price movements of stocks relative to the price future
 # price movement of a synthetic index composed of NASDAQ-listed stocks.
@@ -60,7 +54,7 @@
 # This is a forecasting competition using the time series API. The private leaderboard will be determined
 # using real market data gathered after the submission period closes.
 #
-# Files
+# ### Files
 # [train/test].csv The auction data. The test data will be delivered by the API.
 #
 # * stock_id - A unique identifier for the stock. Not all stock IDs exist in every time bucket.
@@ -90,7 +84,20 @@
 #
 # #### [Taken from the competition website](https://www.kaggle.com/competitions/optiver-trading-at-the-close/overview)
 
+## [markdown] Tools used
+# * **Python**   - for coding :)
+# * **Kedro** - for ML pipeline building
+# * **Pandas** - for data wrangling
+# * **Plotnine** - for data viz
+# * **Scikit-learn** - for ML models
+# * **Numpy** - for numerical operations
+# * **git** - for code management
+# * **Jupyter / ipython** - for interactive coding and interaction with Kedro framework
 
+# [markdown]
+# ### WARNING
+# ##### A lot of the code is in the repo (link in the references). This is mainly for readability. Jupyter should serve
+# ##### only for "executive summary"
 # %%
 import logging
 import warnings
@@ -188,35 +195,32 @@ sc.info("\nColumn descriptions:")
 sc.info(data.describe())
 
 
+# %% [markdown]
+# #### Plot feature distributions
+
 # %%
-# Check for correlation between features
-# There is a strong correlation between some of the features
-# Hence, additional test for collinearity is needed
-# Create box plots to visualize feature distributions
-# %% plot feature distributions
 # Initial feature distributions vary by magnitude and scale. Hence, further
 # normalization might be required
-plot_feature_distributions(data, normalize=True)
-
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    p1 = plot_feature_distributions(data, normalize=True)
+p1
+# PlotnineWarning: stat_boxplot : Removed    57094 rows containing non-finite values has been removed from the plot
 # %% [markdown] Feature relationships visualization
 # * each feature is plotted against the target variable
 # * we can clearly see outliers in the data
 plot_feature_relationships(data.sample(frac=0.01), data.columns.tolist(), "target")
 
-# %%
-# Plot correlation matrix
+# %% [markdown]
+# #### Plot correlation matrix
 # * there is a strong correlation between some of the features
-#     + in some cases, in comes from the fact that one feature is a linear combination of two others
-# (like `scale_bid_size` and `scale_ask_size` vs `bid_size` and `ask_size`)
-# * Additional test for collinearity might be useful
+#     + partially, it comes from the fact that some features are a linear combination of the others
+#     + e.g. `scale_bid_size` and `scale_ask_size` vs `bid_size` and `ask_size`
+# %%
 plot_correlation_matrix(data)
 
-## %%
-# Perform collinearity test using Variance Inflation Factor (VIF)
-
-
 # %% [markdown]
-# Feature engineering
+# ## Feature engineering
 # This node generates features for the model
 # %% [markdown] Feature engineering formulas
 # Generate features for training with formulas in LaTeX notation:
@@ -286,16 +290,21 @@ plot_correlation_matrix(data)
 # * $IAASABS$ = imb1_auc_ask_size_auc_bid_size
 
 # %%
-out1 = (
-    pipelines["data_processing"]
-    .nodes[1]
-    .run({"raw_train_data": out0["raw_train_data"]})
-)
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    out1 = (
+        pipelines["data_processing"]
+        .nodes[1]
+        .run({"raw_train_data": out0["raw_train_data"]})
+    )
 processed_train_data = out1["processed_train_data"]
 feature_list = out1["feature_list"]
 
+# %% [markdown]
+# #### Handling missing values / outliers / uncalculated values
+# * nan's are dropped
+# * infinity values are replaced with mean values for the column
 # %%
-# handling missing values / outliers / uncalculated values
 out2 = (
     pipelines["data_processing"]
     .nodes[2]
@@ -307,9 +316,7 @@ out2 = (
 )
 
 processed_train_data_no_nan = out2["processed_train_data_no_nan"]
-# %% [markdown]
-# Feature engineering
-# This node generates features for the model
+
 # %%
 out3 = (
     pipelines["data_processing"]
@@ -321,9 +328,17 @@ out3 = (
     )
 )
 
-# %% [markdown]
-# Feature selection
 
+# %% [markdown]
+# ### Feature selection
+# #### Description
+# We used the same set of tests as during the classes. As below:
+# * Variance thresholding helps identifying and removing features that show minimal variation across observations.
+# * When a feature remains mostly constant or changes very little, it typically doesn't contribute meaningful
+# predictive power.
+# * Moreover, I use mi_score and sign_fscore to identify features with weak relationships with the target variable.
+# Features with low mi_score ($mi\_score < 0.01$) and high sign_fscore ($sign\_fscore > 0.1$)
+# should be removed as they have weak relationships with the target variable.
 
 # %% Feature selection
 all_features = initial_features + feature_list
@@ -331,14 +346,6 @@ all_features = initial_features + feature_list
 all_features = [f for f in all_features if f not in params["submission_features"]]
 proc_df = out3["processed_train_data_no_nan_no_inf"]
 proc_df[all_features]
-
-# %% [markdown] Feature selection
-# * Variance thresholding helps identifying and removing features that show minimal variation across observations.
-# * When a feature remains mostly constant or changes very little, it typically doesn't contribute meaningful
-# predictive power.
-# * Moreover, I use mi_score and sign_fscore to identify features with weak relationships with the target variable.
-# Features with low mi_score ($mi\_score < 0.01$) and high sign_fscore ($sign\_fscore > 0.1$)
-# should be removed as they have weak relationships with the target variable.
 
 
 # %%
@@ -409,9 +416,10 @@ def calculate_feature_importance(
 
 general_ranking, columns_to_drop = calculate_feature_importance(proc_df, all_features)
 
-
 # %% [markdown]
-# Split the data into train and test
+# ### Split the data into train and test
+# * Training and testing data is split into 80% and 20% of the data respectively.
+#     + This comes from the fact that dataset is large enough. There's no need to split it into a non-vanilla way
 # %%
 out4 = (
     pipelines["data_processing"]
@@ -434,7 +442,8 @@ X_train, X_test, y_train, y_test = (
 )
 
 # %% [markdown]
-# Train Linear Regression models with k-fold CV
+# Train KNN models with k-fold CV
+# %%
 out5 = (
     pipelines["data_processing"]
     .nodes[5]
@@ -449,7 +458,7 @@ out5 = (
 )
 
 # %% [markdown]
-# Train Random Forest models with k-fold CV
+# Train Linear Regression models with k-fold CV
 # %%
 out6 = (
     pipelines["data_processing"]
@@ -466,7 +475,7 @@ out6 = (
 
 # %% [markdown]
 # Train KNN models with k-fold CV
-out8 = (
+out7 = (
     pipelines["data_processing"]
     .nodes[7]
     .run(
@@ -481,17 +490,16 @@ out8 = (
 # %%
 # Merge all models into a single dictionary
 models = {
-    "knn": out5["knn_model"][0],  # Linear regression models
-    "lr": out6["lr_model"][0],  # Random forest models
-    # 'svr': out7[0],  # SVR models
-    "svr": out8["svr_model"][0],  # KNN models
+    "knn": out5["knn_model"][0],
+    "lr": out6["lr_model"][0],  # lr model
+    "svr": out7["svr_model"][0],  # SVR model
 }
 
 accuracy = {
     "knn": out5["knn_model"][1],  # Linear regression accuracy
     "lr": out6["lr_model"][1],  # Random forest accuracy
     # 'svr': out7[1],  # SVR accuracy
-    "svr": out8["svr_model"][1],  # KNN accuracy
+    "svr": out7["svr_model"][1],  # KNN accuracy
 }
 
 
