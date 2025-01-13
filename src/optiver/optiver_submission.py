@@ -582,6 +582,7 @@ plot_model_predictions(y_test, predictions_dict)
 # %%
 accuracy_df = pd.DataFrame(accuracy).T
 accuracy_df = accuracy_df.round(4)
+accuracy_df
 
 # %% [markdown]
 # # Key takeaways:
