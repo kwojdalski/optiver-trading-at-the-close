@@ -188,7 +188,7 @@ plots[2].show()
 # * The dataset consists of only numeric features that can be used in the model
 #     + row_id, stock_id, time_id are used as identifiers for the final submission
 #     + target is the target variable
-#     + all other columns are used as features
+#     + all other columns are used as features (so featues - target - identifiers)
 #     + moreover, we can construct more features that might be used for further alpha extraction
 #         + the whole point of this exercise is to predict the closing price (given by the specific formula from description)
 #         + if we can predict that alpha accurately, we can use it to trade the stock
@@ -526,7 +526,10 @@ accuracy = {
 }
 
 
-# %% plot the models
+# %% [markdown]
+# ### Plot the predictions
+
+# %%
 # Create predictions for plotting
 predictions_dict = {}
 for name, model in models.items():
@@ -568,7 +571,10 @@ def plot_model_predictions(y_test: pd.Series, predictions_dict: dict):
     return plot
 
 
-# %% [markdown] Accuracy table
+plot_model_predictions(y_test, predictions_dict)
+
+# %% [markdown]
+# ### Accuracy table
 # * Optiver benchmark (MAE):
 #     + baseline accuracy - 6.4077
 #     + simple prediction accuracy - 6.4070 (MAE improvement in basis points: 0.0007)
