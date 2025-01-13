@@ -12,7 +12,7 @@ from sklearn.feature_selection import (
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import KFold, train_test_split
-from sklearn.neighbors import KNeighborsRegressor
+from sklearn.neighbors import KNeighborsRegressor, LocalOutlierFactor
 from sklearn.svm import SVR
 
 logger = logging.getLogger(__name__)
@@ -478,3 +478,10 @@ def calculate_feature_importance(
     # Filter out columns that should be dropped
     filtered_feat_data = proc_df.drop(columns=columns_to_drop)
     return filtered_feat_data, general_ranking, columns_to_drop
+
+
+def remove_outliers(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove outliers from the dataframe"""
+    lof = LocalOutlierFactor(n_neighbors=20, contamination=0.05)
+    outlier_labels = lof.fit_predict(df)
+    return df[outlier_labels == 1]

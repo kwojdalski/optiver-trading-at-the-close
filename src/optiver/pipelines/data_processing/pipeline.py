@@ -6,6 +6,7 @@ from .nodes import (
     generate_features,
     handle_nan_rows,
     load_train_data,
+    remove_outliers,
     split_data,
     train_knn_model,
     train_linear_model,
@@ -55,9 +56,15 @@ def create_pipeline(**kwargs) -> Pipeline:
                 name="calculate_feature_importance",
             ),
             node(
+                func=remove_outliers,
+                inputs="filtered_feat_data",
+                outputs="filtered_feat_data_no_outliers",
+                name="remove_outliers",
+            ),
+            node(
                 func=split_data,
                 inputs=[
-                    "filtered_feat_data",
+                    "filtered_feat_data_no_outliers",
                     "params:target",
                     "params:test_size",
                     "params:random_state",

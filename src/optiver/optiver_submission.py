@@ -380,10 +380,13 @@ out4 = (
 
 filtered_feat_data = out4["filtered_feat_data"]
 
-# %% [markdown]
-# ### Split the data into train and test
-# * Training and testing data is split into 80% and 20% of the data respectively.
-#     + This comes from the fact that dataset is large enough. There's no need to split it in a non-vanilla way
+# [markdown]
+# ### Remove outliers
+# * Outliers are removed using Local Outlier Factor (LOF)
+# * Parameters used:
+#     + n_neighbors=20
+#    contamination=0.05
+
 # %%
 out5 = (
     pipelines["data_processing"]
@@ -391,6 +394,21 @@ out5 = (
     .run(
         {
             "filtered_feat_data": filtered_feat_data,
+        }
+    )
+)
+filtered_feat_data_no_outliers = out5["filtered_feat_data_no_outliers"]
+# %% [markdown]
+# ### Split the data into train and test
+# * Training and testing data is split into 80% and 20% of the data respectively.
+#     + This comes from the fact that dataset is large enough. There's no need to split it in a non-vanilla way
+# %%
+out6 = (
+    pipelines["data_processing"]
+    .nodes[6]
+    .run(
+        {
+            "filtered_feat_data_no_outliers": filtered_feat_data_no_outliers,
             "params:test_size": params["test_size"],
             "params:random_state": params["random_state"],
             "params:target": params["target"],
@@ -399,30 +417,14 @@ out5 = (
 )
 
 X_train, X_test, y_train, y_test = (
-    out5["X_train"],
-    out5["X_test"],
-    out5["y_train"],
-    out5["y_test"],
+    out6["X_train"],
+    out6["X_test"],
+    out6["y_train"],
+    out6["y_test"],
 )
 
 # %% [markdown]
 # ### Train KNN models with k-fold CV
-# %%
-out6 = (
-    pipelines["data_processing"]
-    .nodes[6]
-    .run(
-        {
-            "X_train": X_train,
-            "X_test": X_test,
-            "y_train": y_train,
-            "y_test": y_test,
-        }
-    )
-)
-
-# %% [markdown]
-# ### Train Linear Regression models with k-fold CV
 # %%
 out7 = (
     pipelines["data_processing"]
@@ -438,7 +440,7 @@ out7 = (
 )
 
 # %% [markdown]
-# ### Train SVR models with k-fold CV
+# ### Train Linear Regression models with k-fold CV
 # %%
 out8 = (
     pipelines["data_processing"]
@@ -452,19 +454,35 @@ out8 = (
         }
     )
 )
+
+# %% [markdown]
+# ### Train SVR models with k-fold CV
+# %%
+out9 = (
+    pipelines["data_processing"]
+    .nodes[9]
+    .run(
+        {
+            "X_train": X_train,
+            "X_test": X_test,
+            "y_train": y_train,
+            "y_test": y_test,
+        }
+    )
+)
 # %%
 # Merge all models into a single dictionary
 models = {
-    "knn": out6["knn_model"][0],
-    "lr": out7["lr_model"][0],  # lr model
-    "svr": out8["svr_model"][0],  # SVR model
+    "knn": out7["knn_model"][0],
+    "lr": out8["lr_model"][0],  # lr model
+    "svr": out9["svr_model"][0],  # SVR model
 }
 
 accuracy = {
-    "knn": out6["knn_model"][1],  # Linear regression accuracy
-    "lr": out7["lr_model"][1],  # Random forest accuracy
+    "knn": out7["knn_model"][1],  # Linear regression accuracy
+    "lr": out8["lr_model"][1],  # Random forest accuracy
     # 'svr': out7[1],  # SVR accuracy
-    "svr": out8["svr_model"][1],  # KNN accuracy
+    "svr": out9["svr_model"][1],  # KNN accuracy
 }
 
 
@@ -485,7 +503,7 @@ plot_model_predictions(y_test, predictions_dict)
 # * Optiver benchmark (MAE):
 #     + baseline accuracy - 6.4077
 #     + simple prediction accuracy - 6.4070 (MAE improvement in basis points: 0.0007)
-# * We can see that all of our models are slightly better with linear regression being the best one (5.7577)
+# * We can see that all of our models are slightly better with linear regression being the best one (5.6026)
 # %%
 accuracy_df = pd.DataFrame(accuracy).T
 accuracy_df = accuracy_df.round(4)
@@ -524,3 +542,10 @@ accuracy_df
 # ### References:
 # * [Optiver Trading at the Close Competition](https://www.optiver.com/en/)
 # * [Github Repo used for this submission](https://github.com/kwojdalski/optiver-trading-at-the-close)
+
+
+# %% [markdown]
+# ### Example LOF Implementation for Outlier Detection
+# Simple example of using Local Outlier Factor (LOF) for preprocessing before model training:
+
+# %%
