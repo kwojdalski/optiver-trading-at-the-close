@@ -265,3 +265,38 @@ def plot_feature_relationships(
         + labs(x="", y="Target")
     )
     return plot
+
+
+def plot_model_predictions(y_test: pd.Series, predictions_dict: dict):
+    """Create scatter plots comparing model predictions vs actual values.
+
+    Args:
+        y_test: Series containing actual test values
+        predictions_dict: Dictionary mapping model names to their predictions
+
+    Returns:
+        ggplot object with faceted scatter plots
+    """
+    # Create dataframe with actual values and predictions from each model
+    plot_df = pd.DataFrame({"Actual": y_test, **predictions_dict})
+
+    # Melt the dataframe to long format for faceting
+    plot_df_long = pd.melt(
+        plot_df,
+        id_vars=["Actual"],
+        value_vars=[col for col in plot_df.columns if col != "Actual"],
+        var_name="Model",
+        value_name="Predicted",
+    )
+
+    # Create scatter plots for each model
+    plot = (
+        ggplot(plot_df_long, aes(x="Actual", y="Predicted"))
+        + geom_point(alpha=0.5)
+        + geom_smooth(method="lm", color="red")
+        + facet_wrap("~Model", ncol=3)
+        + labs(title="Model Predictions vs Actual Values")
+        + theme(figure_size=(25, 25))
+    )
+
+    return plot

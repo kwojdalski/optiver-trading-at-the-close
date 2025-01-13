@@ -125,16 +125,9 @@ import logging
 import warnings
 from multiprocessing import context
 
-import numpy as np
 import pandas as pd
 from IPython import get_ipython
 from kedro.ipython import load_ipython_extension
-from plotnine import aes, facet_wrap, geom_point, geom_smooth, ggplot, labs, theme
-from sklearn.feature_selection import (
-    VarianceThreshold,
-    f_regression,
-    mutual_info_regression,
-)
 
 from src.optiver.pipelines.data_processing.nodes import calculate_feature_importance
 from src.optiver.plots import (
@@ -142,6 +135,7 @@ from src.optiver.plots import (
     plot_feature_distributions,
     plot_feature_relationships,
     plot_market_data,
+    plot_model_predictions,
     plot_time_series,
 )
 
@@ -371,71 +365,6 @@ proc_df[all_features]
 
 
 # %%
-def calculate_feature_importance(
-    proc_df: pd.DataFrame, features: list[str]
-) -> tuple[pd.DataFrame, list[str]]:
-    """Calculate feature importance scores using mutual information and f-regression.
-
-    Args:
-        proc_df: Processed dataframe containing features and target
-        features: List of all feature names
-
-    Returns:
-        Tuple containing:
-        - DataFrame with mutual information and f-regression scores for each feature
-        - List of columns that should be dropped due to low importance
-    """
-    # Calculate mutual information scores
-    sel = VarianceThreshold(0.01)
-    sel_var = sel.fit_transform(proc_df[all_features])
-    col_imp = proc_df[all_features][
-        proc_df[all_features].columns[sel.get_support(indices=True)]
-    ].columns
-    col_redundant = set(processed_train_data[all_features].columns.tolist()) - set(
-        col_imp
-    )
-
-    mi: dict[str, float] = dict()
-    for feature in col_imp:
-        mi.update(
-            {
-                feature: mutual_info_regression(
-                    proc_df[[feature]].values, proc_df["target"].values
-                )[0]
-            }
-        )
-    miDF = pd.DataFrame.from_dict(mi, orient="index", columns=["score"])
-    general_ranking = pd.DataFrame(index=all_features)
-    general_ranking = pd.merge(general_ranking, miDF, left_index=True, right_index=True)
-    general_ranking.rename(columns={"score": "mi_score"}, inplace=True)
-
-    # Calculate f-regression scores
-    warnings.simplefilter(action="ignore", category=FutureWarning)
-    fscore: dict[str, float] = dict()
-    for i in all_features:
-        fscore.update(
-            {i: f_regression(proc_df[[i]].values, proc_df["target"].values)[1]}
-        )
-    fscoreDF = pd.DataFrame.from_dict(fscore, orient="index", columns=["p_value_score"])
-    fscoreDF.sort_values(by="p_value_score").head(10)
-    fscoreDF.sort_values(by="p_value_score", ascending=False).head(10)
-    fscoreDF["sign"] = np.where(fscoreDF.p_value_score < 0.1, 1, 0)
-    general_ranking = pd.merge(
-        general_ranking, fscoreDF, left_index=True, right_index=True
-    )
-    general_ranking.rename(
-        columns={"p_value_score": "sign_fscore", "sign": "sign_fscore_0_1"},
-        inplace=True,
-    )
-
-    # Identify columns to drop based on importance thresholds
-    columns_to_drop = general_ranking[
-        (general_ranking["mi_score"] < 0.01) & (general_ranking["sign_fscore"] > 0.1)
-    ].index.tolist()
-
-    return general_ranking, columns_to_drop
-
-
 general_ranking, columns_to_drop = calculate_feature_importance(proc_df, all_features)
 
 # %% [markdown]
@@ -534,41 +463,6 @@ accuracy = {
 predictions_dict = {}
 for name, model in models.items():
     predictions_dict[f"{name}_pred"] = model.predict(X_test)
-
-
-def plot_model_predictions(y_test: pd.Series, predictions_dict: dict):
-    """Create scatter plots comparing model predictions vs actual values.
-
-    Args:
-        y_test: Series containing actual test values
-        predictions_dict: Dictionary mapping model names to their predictions
-
-    Returns:
-        ggplot object with faceted scatter plots
-    """
-    # Create dataframe with actual values and predictions from each model
-    plot_df = pd.DataFrame({"Actual": y_test, **predictions_dict})
-
-    # Melt the dataframe to long format for faceting
-    plot_df_long = pd.melt(
-        plot_df,
-        id_vars=["Actual"],
-        value_vars=[col for col in plot_df.columns if col != "Actual"],
-        var_name="Model",
-        value_name="Predicted",
-    )
-
-    # Create scatter plots for each model
-    plot = (
-        ggplot(plot_df_long, aes(x="Actual", y="Predicted"))
-        + geom_point(alpha=0.5)
-        + geom_smooth(method="lm", color="red")
-        + facet_wrap("~Model", ncol=3)
-        + labs(title="Model Predictions vs Actual Values")
-        + theme(figure_size=(25, 25))
-    )
-
-    return plot
 
 
 plot_model_predictions(y_test, predictions_dict)

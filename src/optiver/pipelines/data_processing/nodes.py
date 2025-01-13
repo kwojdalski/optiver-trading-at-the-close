@@ -1,9 +1,14 @@
 import logging
+import warnings
 from itertools import combinations
 
 import numpy as np
 import pandas as pd
-from sklearn.feature_selection import VarianceThreshold
+from sklearn.feature_selection import (
+    VarianceThreshold,
+    f_regression,
+    mutual_info_regression,
+)
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import KFold, train_test_split
@@ -419,13 +424,11 @@ def calculate_feature_importance(
     """
     # Calculate mutual information scores
     sel = VarianceThreshold(0.01)
-    sel_var = sel.fit_transform(proc_df[all_features])
-    col_imp = proc_df[all_features][
-        proc_df[all_features].columns[sel.get_support(indices=True)]
+    sel_var = sel.fit_transform(proc_df[features])
+    col_imp = proc_df[features][
+        proc_df[features].columns[sel.get_support(indices=True)]
     ].columns
-    col_redundant = set(processed_train_data[all_features].columns.tolist()) - set(
-        col_imp
-    )
+    col_redundant = set(proc_df[features].columns.tolist()) - set(col_imp)
 
     mi: dict[str, float] = dict()
     for feature in col_imp:
@@ -437,14 +440,14 @@ def calculate_feature_importance(
             }
         )
     miDF = pd.DataFrame.from_dict(mi, orient="index", columns=["score"])
-    general_ranking = pd.DataFrame(index=all_features)
+    general_ranking = pd.DataFrame(index=features)
     general_ranking = pd.merge(general_ranking, miDF, left_index=True, right_index=True)
     general_ranking.rename(columns={"score": "mi_score"}, inplace=True)
 
     # Calculate f-regression scores
     warnings.simplefilter(action="ignore", category=FutureWarning)
     fscore: dict[str, float] = dict()
-    for i in all_features:
+    for i in features:
         fscore.update(
             {i: f_regression(proc_df[[i]].values, proc_df["target"].values)[1]}
         )
