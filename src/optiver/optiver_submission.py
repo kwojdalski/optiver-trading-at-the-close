@@ -2,7 +2,7 @@
 # # Overview
 # In this competition, you are challenged to develop a model capable of predicting the closing price
 # movements for hundreds of Nasdaq listed stocks using data from the order book and the closing auction of
-# the stock. Information from the auction can be used to adjust prices, access supply and demand dynamics,
+# the stock. Information from the auction can be used to adjust prices, assess supply and demand dynamics,
 # and identify trading opportunities.
 #
 # # More in-depth description
@@ -10,7 +10,7 @@
 # #### [Taken from the competition website](https://www.kaggle.com/competitions/optiver-trading-at-the-close/overview)
 # Stock exchanges are fast-paced, high-stakes environments where every second counts. The intensity
 # escalates as the trading day approaches its end, peaking in the critical final ten minutes. These
-# moments, often characterised by heightened volatility and rapid price fluctuations, play a pivotal role
+# moments, often characterized by heightened volatility and rapid price fluctuations, play a pivotal role
 # in shaping the global economic narrative for the day.
 #
 # Each trading day on the Nasdaq Stock Exchange concludes with the Nasdaq Closing Cross auction. This
@@ -33,23 +33,22 @@
 # those faced by traders, quantitative researchers and engineers at Optiver.
 #
 # ### Evaluation
-# Submissions are evaluate on the Mean Absolute Error (MAE) between the predicted return and the observed target. The formula is given by:
+# Submissions are evaluated on the Mean Absolute Error (MAE) between the predicted return and the observed target. The formula is given by:
 #
 # $$MAE = \frac{1}{n}\sum_{i=1}^{n}|y_i - x_i|$$
 #
-# Where:
+# where:
 #
 # - $n$ is the total number of data points.
 # - $y_i$ is the predicted value for data point $i$.
 # - $x_i$ is the observed value for data point $i$.
 
-
-# ## Data Description
 # %% [markdown]
+# ## Data Description
 # ### Dataset
 # This dataset contains historic data for the daily ten minute closing auction on the NASDAQ stock
-# exchange. Your challenge is to predict the future price movements of stocks relative to the price future
-# price movement of a synthetic index composed of NASDAQ-listed stocks.
+# exchange. Your challenge is to predict the future price movements of stocks relative to the price
+# movement of a synthetic index composed of NASDAQ-listed stocks.
 #
 # This is a forecasting competition using the time series API. The private leaderboard will be determined
 # using real market data gathered after the submission period closes.
@@ -84,20 +83,43 @@
 #
 # #### [Taken from the competition website](https://www.kaggle.com/competitions/optiver-trading-at-the-close/overview)
 
-## [markdown] Tools used
-# * **Python**   - for coding :)
+# %% [markdown]
+# ### Tools used
+# * **Python** - for coding
 # * **Kedro** - for ML pipeline building
 # * **Pandas** - for data wrangling
-# * **Plotnine** - for data viz
+# * **Plotnine** - for data visualization
 # * **Scikit-learn** - for ML models
 # * **Numpy** - for numerical operations
 # * **git** - for code management
 # * **Jupyter / ipython** - for interactive coding and interaction with Kedro framework
-
-# [markdown]
+# %% [markdown]
+# ## Agenda
+# 1. Introduction
+#    * Dataset overview
+#    * Tools and technologies used
+# 2. Data Analysis & Preprocessing
+#    * Data exploration
+#    * Feature engineering and scaling
+#    * Handling missing values and outliers
+#    * Feature selection and importance analysis
+# 3. Model Development
+#    * Training multiple models:
+#      - Linear Regression
+#      - KNN Regressor
+#      - Support Vector Regressor
+#    * Model evaluation and comparison
+#      - With use of RMSE and other metrics
+#    * Visualization of predictions vs actual values
+# 4. Results & Takeaways
+#    * Performance comparison with Optiver benchmark
+#    * Analysis of model strengths and limitations
+#    * Potential improvements and future work
+#
+# %% [markdown]
 # ### WARNING
-# ##### A lot of the code is in the repo (link in the references). This is mainly for readability. Jupyter should serve
-# ##### only for "executive summary"
+# **A lot of the code is in the repo (link in the references). This is mainly for readability. Jupyter should serve
+#  only for "executive summary"**
 # %%
 import logging
 import warnings
@@ -114,6 +136,7 @@ from sklearn.feature_selection import (
     mutual_info_regression,
 )
 
+from src.optiver.pipelines.data_processing.nodes import calculate_feature_importance
 from src.optiver.plots import (
     plot_correlation_matrix,
     plot_feature_distributions,
@@ -132,7 +155,6 @@ initial_features = params["features"]
 # %%
 # Loading data
 # Moreover the function adds variables based on matched size
-
 out0 = (
     pipelines["data_processing"]
     .nodes[0]
@@ -146,7 +168,7 @@ out0 = (
 )
 
 # %%
-# Ploting time series for target in day 0
+# Plotting time series for target in day 0
 
 processed_train_data = catalog.load("raw_train_data")
 
@@ -162,7 +184,7 @@ plots[2].show()
 # Generate and display the plots
 # histogram_plot = plot_all_histograms(data)
 # %% [markdown]
-# Inpsect the dataset
+# ### Dataset inspection
 # * The dataset consists of only numeric features that can be used in the model
 #     + row_id, stock_id, time_id are used as identifiers for the final submission
 #     + target is the target variable
@@ -170,7 +192,7 @@ plots[2].show()
 #     + moreover, we can construct more features that might be used for further alpha extraction
 #         + the whole point of this exercise is to predict the closing price (given by the specific formula from description)
 #         + if we can predict that alpha accurately, we can use it to trade the stock
-# .       + for instance, by posting bids below / offers on non-primaries above expected value (e.g. TURQ vs LSE)
+#         + for instance, by posting bids below / offers on non-primaries above expected value (e.g. TURQ vs LSE)
 # * Looks like there are no missing values for most columns in the dataset
 #    + the only columns with missing values are `far_price` (55.26%) and `near_price` (54.55%)
 
@@ -214,7 +236,7 @@ plot_feature_relationships(data.sample(frac=0.01), data.columns.tolist(), "targe
 # %% [markdown]
 # #### Plot correlation matrix
 # * there is a strong correlation between some of the features
-#     + partially, it comes from the fact that some features are a linear combination of the others
+#     + partially, it comes from the fact that some features are a linear combination of others
 #     + e.g. `scale_bid_size` and `scale_ask_size` vs `bid_size` and `ask_size`
 # %%
 plot_correlation_matrix(data)
@@ -302,8 +324,8 @@ feature_list = out1["feature_list"]
 
 # %% [markdown]
 # #### Handling missing values / outliers / uncalculated values
-# * nan's are dropped
-# * infinity values are replaced with mean values for the column
+# * NaN values are dropped
+# * Infinity values are replaced with mean values for the column
 # %%
 out2 = (
     pipelines["data_processing"]
@@ -333,7 +355,7 @@ out3 = (
 # ### Feature selection
 # #### Description
 # We used the same set of tests as during the classes. As below:
-# * Variance thresholding helps identifying and removing features that show minimal variation across observations.
+# * Variance thresholding helps identify and remove features that show minimal variation across observations.
 # * When a feature remains mostly constant or changes very little, it typically doesn't contribute meaningful
 # predictive power.
 # * Moreover, I use mi_score and sign_fscore to identify features with weak relationships with the target variable.
@@ -419,7 +441,7 @@ general_ranking, columns_to_drop = calculate_feature_importance(proc_df, all_fea
 # %% [markdown]
 # ### Split the data into train and test
 # * Training and testing data is split into 80% and 20% of the data respectively.
-#     + This comes from the fact that dataset is large enough. There's no need to split it into a non-vanilla way
+#     + This comes from the fact that dataset is large enough. There's no need to split it in a non-vanilla way
 # %%
 out4 = (
     pipelines["data_processing"]
@@ -442,7 +464,7 @@ X_train, X_test, y_train, y_test = (
 )
 
 # %% [markdown]
-# Train KNN models with k-fold CV
+# ### Train KNN models with k-fold CV
 # %%
 out5 = (
     pipelines["data_processing"]
@@ -458,7 +480,7 @@ out5 = (
 )
 
 # %% [markdown]
-# Train Linear Regression models with k-fold CV
+# ### Train Linear Regression models with k-fold CV
 # %%
 out6 = (
     pipelines["data_processing"]
@@ -474,7 +496,8 @@ out6 = (
 )
 
 # %% [markdown]
-# Train KNN models with k-fold CV
+# ### Train SVR models with k-fold CV
+# %%
 out7 = (
     pipelines["data_processing"]
     .nodes[7]
@@ -549,26 +572,41 @@ def plot_model_predictions(y_test: pd.Series, predictions_dict: dict):
 # * Optiver benchmark (MAE):
 #     + baseline accuracy - 6.4077
 #     + simple prediction accuracy - 6.4070 (MAE improvement in basis points: 0.0007)
-# * We can that all of our models are slightly better with linear regression being the best one (5.7562)
+# * We can see that all of our models are slightly better with linear regression being the best one (5.7562)
+# %%
 accuracy_df = pd.DataFrame(accuracy).T
 accuracy_df = accuracy_df.round(4)
 
-# %%
-# Key takewaways:
-# * In practice, such models might be used for trading, but not for HFT, uHFT, as they tend to be too slow
-# * The model is not able to predict the closing price with high accuracy
+# %% [markdown]
+# # Key takeaways:
+# * My goal was not only to show the ability of creating a model that would beat up the benchmark, but
+# but also to show the ability to create a decent, robust pipeline for reproducibility
+# * In practice, such model that tackles such problems as this one might be used in trading
+# but rather not in HFT or μHFT, as they tend to be too slow
+#     + μHFT is off the table, but in HFT it could be used with smart recalibration
+# * Even the bestmodel is not able to predict the closing price with high accuracy
+#     + it is expected as it's very hard to capture all non-linearities in financial data
+# * Handling missing / outlier data was fairly simple, and some other methods could be used
+# * In terms of feature engineering, variables that utilize cross-asset dependencies
+# could be potentially beneficial (not having a strong opinion on this)
 # * More sophisticated models might be needed to achieve better results that could contribute to alpha generation for MFT
-# * Accuracy of models could be improved by working on parametrization of both models and engineered features
-#     + Experiment with regularization methods
-#     + Trying different models
-# * Also, data processing pipeline could have been more sophisticated with addessing such issues as:
-#     + cleaning up the data (e.g. outlier detection)
-#     + feature selection
-#     + handling missing values / inf values differently
-#     + data transformation (e.g. normalization, log transformation, etc.)
-#     + dimensionality reduction methods (e.g. PCA) that could speed up the training process at a relatively low cost (of accuracy)
-
-# %%
-# References:
+#     + For instance, trying ensemble methods (e.g. Random Forests, and other models outside the scope of this course) could
+# help in getting better results
+# * Accuracy of models could be improved by working on parametrization of both models and engineered features:
+# * Also, the data processing pipeline could have been more sophisticated by addressing such issues as:
+#     + Cleaning up the data, i.e. handling missing values / inf values differently
+# .        + MICE imputation, KNN imputation, etc. for missing values
+#          + LOF for outliers
+#     + Feature selection
+#          + Elastic Net
+#     + Data transformation (e.g. normalization, log transformation, etc.)
+#     + Dimensionality reduction methods (e.g. PCA) that could speed up the training process at a relatively low cost (of accuracy)
+#     + Using scaling methods (e.g. StandardScaler, RobustScaler)
+# * More robust data pipeline could be implemented:
+#     + For instance, using `great expectations` hooks to validate the data
+#     + At the moment, it's a mix of the pipeline + jupyter code
+#     + Embedding more parameters into kedro config files (I used just a few for demonstration))
+# %% [markdown]
+# ### References:
 # * [Optiver Trading at the Close Competition](https://www.optiver.com/en/)
 # * [Github Repo used for this submission](https://github.com/kwojdalski/optiver-trading-at-the-close)
