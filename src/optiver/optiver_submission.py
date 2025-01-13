@@ -380,12 +380,14 @@ out4 = (
 
 filtered_feat_data = out4["filtered_feat_data"]
 
-# [markdown]
+# %% [markdown]
 # ### Remove outliers
 # * Outliers are removed using Local Outlier Factor (LOF)
 # * Parameters used:
-#     + n_neighbors=20
-#    contamination=0.05
+#     + **n_neighbors=20**
+#     + **contamination=0.05**
+# * Parameters values have been chosen arbitrarily and
+# in a conservative manner so that not too many observations are removed
 
 # %%
 out5 = (
@@ -504,6 +506,7 @@ plot_model_predictions(y_test, predictions_dict)
 #     + baseline accuracy - 6.4077
 #     + simple prediction accuracy - 6.4070 (MAE improvement in basis points: 0.0007)
 # * We can see that all of our models are slightly better with linear regression being the best one (5.6026)
+# **[Update] This value has been achieved through improvements to the dataset (handling incorrect data/outliers)**
 # %%
 accuracy_df = pd.DataFrame(accuracy).T
 accuracy_df = accuracy_df.round(4)
@@ -527,10 +530,10 @@ accuracy_df
 # * Accuracy of models could be improved by working on parametrization of both models and engineered features:
 # * Also, the data processing pipeline could have been more sophisticated by addressing such issues as:
 #     + Cleaning up the data, i.e. handling missing values / inf values differently
-# .        + MICE imputation, KNN imputation, etc. for missing values
-#          + LOF for outliers
+# .        - MICE imputation, KNN imputation, etc. for missing values
+#          ~~- LOF for outliers~~
 #     + Feature selection
-#          + Elastic Net
+#          - Elastic Net
 #     + Data transformation (e.g. normalization, log transformation, etc.)
 #     + Dimensionality reduction methods (e.g. PCA) that could speed up the training process at a relatively low cost (of accuracy)
 #     + Using scaling methods (e.g. StandardScaler, RobustScaler)
