@@ -1,6 +1,7 @@
 from kedro.pipeline import Pipeline, node, pipeline
 
 from .nodes import (
+    calculate_feature_importance,
     check_and_replace_infinity_values,
     generate_features,
     handle_nan_rows,
@@ -45,9 +46,18 @@ def create_pipeline(**kwargs) -> Pipeline:
                 name="check_and_replace_infinity_values",
             ),
             node(
+                func=calculate_feature_importance,
+                inputs=[
+                    "processed_train_data_no_nan_no_inf",
+                    "params:all_features",
+                ],
+                outputs=["filtered_feat_data", "general_ranking", "columns_to_drop"],
+                name="calculate_feature_importance",
+            ),
+            node(
                 func=split_data,
                 inputs=[
-                    "processed_train_data_no_nan",
+                    "filtered_feat_data",
                     "params:target",
                     "params:test_size",
                     "params:random_state",

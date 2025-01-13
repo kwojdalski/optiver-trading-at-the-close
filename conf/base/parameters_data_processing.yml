@@ -29,3 +29,37 @@ submission_features:
   - date_id
   - time_id
   - row_id
+all_features:
+  - seconds_in_bucket
+  - imbalance_size
+  - imbalance_buy_sell_flag
+  - reference_price
+  - matched_size
+  - far_price
+  - near_price
+  - bid_price
+  - bid_size
+  - ask_price
+  - ask_size
+  - wap
+  - scale_imbalance_size
+  - scale_matched_size
+  - scale_bid_size
+  - scale_ask_size
+  - auc_bid_size
+  - auc_ask_size
+  - imb1_wap_mid_price
+  - imb1_ask_money_bid_money
+  - imb1_volume_cont_volume_auc
+  - imb1_reference_price_ask_price
+  - imb1_reference_price_mid_price
+  - div_flag_imbalance_size_2_balance
+  - ask_price
+  - imb1_reference_price_bid_price
+  - scale_matched_size
+  - imb1_near_price_wap
+  - volume_auc_money
+  - imb1_far_price_wap
+  - bid_size
+  - scale_bid_size
+  - bid_size_all

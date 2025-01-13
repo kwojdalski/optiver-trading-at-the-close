@@ -410,7 +410,7 @@ def train_svr_model(
 
 def calculate_feature_importance(
     proc_df: pd.DataFrame, features: list[str]
-) -> tuple[pd.DataFrame, list[str]]:
+) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
     """Calculate feature importance scores using mutual information and f-regression.
 
     Args:
@@ -422,13 +422,18 @@ def calculate_feature_importance(
         - DataFrame with mutual information and f-regression scores for each feature
         - List of columns that should be dropped due to low importance
     """
-    # Calculate mutual information scores
+    # Remove low variance features using VarianceThreshold with threshold of 0.01
+    # Get column names of features that pass the variance threshold
+    # Calculate redundant columns by finding difference between all features and important ones
     sel = VarianceThreshold(0.01)
+    # sel_var contains the transformed feature matrix with only high variance features
     sel_var = sel.fit_transform(proc_df[features])
     col_imp = proc_df[features][
         proc_df[features].columns[sel.get_support(indices=True)]
     ].columns
-    col_redundant = set(proc_df[features].columns.tolist()) - set(col_imp)
+    # Get redundant columns by finding difference between all features and important ones
+    col_redundant = list(set(proc_df[features].columns.tolist()) - set(col_imp))
+    columns_to_drop = list(col_redundant)  # Initialize drop list with redundant columns
 
     mi: dict[str, float] = dict()
     for feature in col_imp:
@@ -463,9 +468,13 @@ def calculate_feature_importance(
         inplace=True,
     )
 
-    # Identify columns to drop based on importance thresholds
-    columns_to_drop = general_ranking[
-        (general_ranking["mi_score"] < 0.01) & (general_ranking["sign_fscore"] > 0.1)
-    ].index.tolist()
-
-    return general_ranking, columns_to_drop
+    # Add columns to drop based on importance thresholds
+    columns_to_drop.extend(
+        general_ranking[
+            (general_ranking["mi_score"] < 0.01)
+            & (general_ranking["sign_fscore"] > 0.1)
+        ].index.tolist()
+    )
+    # Filter out columns that should be dropped
+    filtered_feat_data = proc_df.drop(columns=columns_to_drop)
+    return filtered_feat_data, general_ranking, columns_to_drop
